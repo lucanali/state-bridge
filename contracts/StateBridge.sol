@@ -265,6 +265,8 @@ contract StateBridge {
     ) internal view {
         if (isCritical) {
             require(block.timestamp < challengeTimestamp, "Time-lock active");
+        } else {
+            revert("Block state update is not critical");
         }
     }
 
