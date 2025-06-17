@@ -133,15 +133,6 @@ contract StateBridge {
                 bodyRoot: blockHash
             });
 
-            // Verify proposer signature
-            lightClientState.verifyValidatorSignature(
-                header,
-                blockData.proposerV,
-                blockData.proposerR,
-                blockData.proposerS,
-                msg.sender
-            );
-
             // Update light client state with the new header
             lightClientState.setHead(header);
             if (executionStateRoot != bytes32(0)) {
@@ -194,15 +185,7 @@ contract StateBridge {
             )
         );
         if (computedBlockHash == update.blockHash) {
-            // Verify the fraud proof using light client library
-            bool isValid = lightClientState.verifyFraudProof(
-                _blockNumber,
-                proof.correctBlockHash,
-                proof.executionStateRoot,
-                proof.proof
-            );
-
-            require(!isValid, "Invalid fraud proof");
+            require(!_verifyState(_blockNumber, update, proof), "Invalid fraud proof");
         }
 
         // Revert the header update in light client state
@@ -217,6 +200,37 @@ contract StateBridge {
 
         _slashValidator(update.proposer);
         emit Challenged(_blockNumber, msg.sender);
+    }
+
+    function _verifyState(uint256 _blockNumber, BlockUpdate memory _update, FraudProof memory _proof) internal view returns(bool) {
+        // Create beacon header for light client
+            BeaconBlockHeader memory header = BeaconBlockHeader({
+                slot: uint64(_blockNumber),
+                proposerIndex: 0, // This will be set by the light client
+                parentRoot: _update.blockData.parentHash,
+                stateRoot: _update.blockData.stateRoot,
+                bodyRoot: _update.blockHash
+            });
+
+            // Verify proposer signature
+            bool isSigValid = lightClientState.verifyValidatorSignature(
+                header,
+                _update.blockData.proposerV,
+                _update.blockData.proposerR,
+                _update.blockData.proposerS,
+                _update.proposer
+            );
+
+            if (!isSigValid) {
+                return false;
+            }
+            // Verify the fraud proof using light client library
+            return lightClientState.verifyFraudProof(
+                _blockNumber,
+                _proof.correctBlockHash,
+                _proof.executionStateRoot,
+                _proof.proof
+            );
     }
 
     function _slashValidator(address validator) internal {

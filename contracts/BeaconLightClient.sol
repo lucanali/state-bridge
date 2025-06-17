@@ -71,7 +71,7 @@ library BeaconLightClient {
         bytes32 r,
         bytes32 s,
         address validator
-    ) internal view {
+    ) internal view returns(bool) {
         bytes32 signingRoot = SimpleSerialize.computeSigningRoot(
             header,
             state.defaultForkVersion,
@@ -93,7 +93,7 @@ library BeaconLightClient {
         );
 
         // Check if the recovered address matches the validator
-        require(recoveredSigner == validator, "Signature verification failed");
+        return(recoveredSigner == validator);
     }
 
     function verifyCorrectBlockHash(

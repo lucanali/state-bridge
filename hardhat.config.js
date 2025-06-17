@@ -18,7 +18,7 @@ module.exports = {
       chainId: 31337,
     },
     arbSepolia: {
-      url: process.env.ARB_SEPOLIA_RPC_URL,
+      url: process.env.ARB_SEPOLIA_RPC_URL || "",
       accounts: process.env.DEPLOYER_PRIVATE_KEY
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
