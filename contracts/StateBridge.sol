@@ -61,11 +61,9 @@ contract StateBridge {
     );
     event Challenged(uint256 indexed blockNumber, address indexed challenger);
     event Slashed(address indexed validator, uint256 amount);
-    event TreasuryWithdrawn(address indexed to, uint256 amount);
 
     // Add owner state variable
     address public owner;
-    uint256 public treasuryBalance;
 
     // Add owner modifier
     modifier onlyOwner() {
@@ -225,8 +223,6 @@ contract StateBridge {
         // Slash the validator
         registry.slash(validator, SLASH_AMOUNT);
 
-        treasuryBalance += SLASH_AMOUNT;
-
         // Emit event
         emit ValidatorSlashed(validator, msg.sender, SLASH_AMOUNT);
     }
@@ -235,19 +231,6 @@ contract StateBridge {
         uint256 _blockNumber
     ) external view returns (BlockUpdate memory) {
         return updates[_blockNumber];
-    }
-
-    function withdrawTreasuryBalance(address to) external onlyOwner {
-        require(to != address(0), "Invalid recipient address");
-        require(treasuryBalance > 0, "No balance to withdraw");
-
-        uint256 amount = treasuryBalance;
-        treasuryBalance = 0;
-
-        (bool success, ) = to.call{value: amount}("");
-        require(success, "Transfer failed");
-
-        emit TreasuryWithdrawn(to, amount);
     }
 
     function setSyncCommittee(
