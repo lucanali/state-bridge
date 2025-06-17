@@ -179,3 +179,39 @@ To run the relayer:
 cd relayer
 go run main.go
 ```
+
+# State Bridge
+
+This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
+
+Try running some of the following tasks:
+
+```shell
+npx hardhat help
+npx hardhat node
+npx hardhat run scripts/deploy.js
+```
+
+## Deployment
+
+To deploy the contracts:
+
+```bash
+# Deploy using Hardhat
+npx hardhat run scripts/deploy.js --network <network>
+```
+
+## Running the Relayer
+
+To run the relayer script:
+
+```bash
+# Using Foundry
+forge script script/Relayer.s.sol --rpc-url <rpc_url> --broadcast
+```
+
+Make sure to set your private key in the environment:
+
+```bash
+export PRIVATE_KEY=your_private_key_here
+```
