@@ -1,0 +1,15 @@
+{
+    "sourceChain": {
+      "rpcUrl": "",
+      "chainId": 1337,
+      "bridgeAddr": "0x",
+      "startBlock": 0
+    },
+    "destinationChain": {
+      "rpcUrl": "",
+      "chainId": 1338,
+      "bridgeAddr": "0x"
+    },
+    "pollInterval": 12,
+    "validatorPrivateKey": ""
+  }
