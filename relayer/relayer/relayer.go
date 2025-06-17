@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -100,6 +102,12 @@ func NewRelayer(cfg *config.Config) (*Relayer, error) {
 		return nil, fmt.Errorf("failed to create destination bridge: %v", err)
 	}
 
+	// Get the last block number from the bridge
+	lastBlockNumber, err := destBridge.BlockNumber(&bind.CallOpts{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last block number: %v", err)
+	}
+
 	return &Relayer{
 		cfg:             cfg,
 		sourceClient:    sourceClient,
@@ -108,8 +116,8 @@ func NewRelayer(cfg *config.Config) (*Relayer, error) {
 		destAuth:        destAuth,
 		sourceBridge:    sourceBridge,
 		destBridge:      destBridge,
-		lastSourceBlock: cfg.SourceChain.StartBlock,
-		lastDestBlock:   cfg.DestinationChain.StartBlock,
+		lastSourceBlock: lastBlockNumber.Uint64(),
+		lastDestBlock:   lastBlockNumber.Uint64(),
 		pollInterval:    time.Duration(cfg.PollInterval) * time.Second,
 		validatorKey:    validatorKey,
 		httpClient:      httpClient,
@@ -166,6 +174,30 @@ func (r *Relayer) processBlocks(ctx context.Context) error {
 }
 
 func (r *Relayer) processBlock(ctx context.Context, blockNum uint64) error {
+	// Check if we need to wait for critical block challenge period
+	if blockNum > 0 {
+		lastUpdate, err := r.destBridge.GetUpdate(&bind.CallOpts{}, big.NewInt(int64(blockNum-1)))
+		if err != nil {
+			return fmt.Errorf("failed to get last update: %v", err)
+		}
+
+		// If last block was critical and not challenged, check if we need to wait
+		if lastUpdate.IsCritical && !lastUpdate.Challenged {
+			// Get current timestamp
+			header, err := r.destClient.HeaderByNumber(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("failed to get current header: %v", err)
+			}
+
+			// If we haven't reached the challenge timestamp, wait
+			if header.Time < lastUpdate.ChallengeTimestamp.Uint64() {
+				waitTime := time.Until(time.Unix(int64(lastUpdate.ChallengeTimestamp.Uint64()), 0))
+				log.Printf("Waiting %v for critical block challenge period", waitTime)
+				time.Sleep(waitTime)
+			}
+		}
+	}
+
 	// Get block from source chain using JSON-RPC
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -232,23 +264,52 @@ func (r *Relayer) processBlock(ctx context.Context, blockNum uint64) error {
 		Number:           number,
 	}
 
-	// Create signing root (same as SimpleSerialize.computeSigningRoot)
-	signingRoot := crypto.Keccak256(
-		blockData.ParentHash[:],
-		blockData.StateRoot[:],
-		blockData.TransactionsRoot[:],
-		blockData.ReceiptsRoot[:],
-		blockData.Timestamp.Bytes(),
-		blockData.Number.Bytes(),
+	// Create beacon header for signing
+	header := contracts.BeaconBlockHeader{
+		Slot:          uint64(blockNum),
+		ProposerIndex: 0, // This will be set by the light client
+		ParentRoot:    blockData.ParentHash,
+		StateRoot:     blockData.StateRoot,
+		BodyRoot:      blockHash,
+	}
+
+	// Create signing root using SimpleSerialize algorithm
+	// First compute SSZ beacon block header
+	slotBytes := toLittleEndian(header.Slot)
+	proposerBytes := toLittleEndian(header.ProposerIndex)
+	slotProposerHash := sha256.Sum256(bytes.Join([][]byte{slotBytes, proposerBytes}, nil))
+	parentStateHash := sha256.Sum256(bytes.Join([][]byte{header.ParentRoot[:], header.StateRoot[:]}, nil))
+	left := sha256.Sum256(bytes.Join([][]byte{slotProposerHash[:], parentStateHash[:]}, nil))
+
+	bodyZeroHash := sha256.Sum256(bytes.Join([][]byte{header.BodyRoot[:], bytes.Repeat([]byte{0}, 32)}, nil))
+	zeroZeroHash := sha256.Sum256(bytes.Join([][]byte{bytes.Repeat([]byte{0}, 32), bytes.Repeat([]byte{0}, 32)}, nil))
+	right := sha256.Sum256(bytes.Join([][]byte{bodyZeroHash[:], zeroZeroHash[:]}, nil))
+
+	sszHeader := sha256.Sum256(bytes.Join([][]byte{left[:], right[:]}, nil))
+
+	// Compute domain
+	// First compute the hash of the fork version and genesis validators root
+	domainInput := bytes.Join([][]byte{
 		state.DefaultForkVersion[:],
 		state.GenesisValidatorsRoot[:],
-	)
+	}, nil)
+	domainHash := sha256.Sum256(domainInput)
+
+	// Create domain with 0x07 prefix and right-shifted hash
+	domain := bytes.Join([][]byte{
+		[]byte{0x07},
+		bytes.Repeat([]byte{0}, 31),
+		domainHash[4:], // Right shift by 32 bytes (256 bits)
+	}, nil)
+
+	// Compute final signing root
+	signingRoot := sha256.Sum256(bytes.Join([][]byte{sszHeader[:], domain}, nil))
 
 	// Create message for signing (same as in Solidity)
 	message := crypto.Keccak256(
 		append(
 			[]byte("\x19Ethereum Signed Message:\n32"),
-			signingRoot...,
+			signingRoot[:]...,
 		),
 	)
 
@@ -273,7 +334,7 @@ func (r *Relayer) processBlock(ctx context.Context, blockNum uint64) error {
 		r.destAuth,
 		blockHash,
 		stateRoot,
-		false, // isCritical
+		true, // isCritical
 		blockData,
 	)
 	if err != nil {
@@ -291,6 +352,13 @@ func (r *Relayer) processBlock(ctx context.Context, blockNum uint64) error {
 
 	log.Printf("Submitted block %d to destination chain: %s", blockNum, tx.Hash().Hex())
 	return nil
+}
+
+// Helper function to convert uint64 to little endian bytes
+func toLittleEndian(n uint64) []byte {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, n)
+	return b
 }
 
 // monitorBlocks continuously checks for invalid blocks and generates fraud proofs
