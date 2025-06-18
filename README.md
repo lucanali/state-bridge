@@ -92,6 +92,40 @@ The BeaconLightClient library:
 - Manages header verification
 - Supports fraud proof verification
 
+### Signing Process
+
+**Current Issue**: The signing process in the relayer is not currently working correctly. The relayer attempts to implement a signing process that matches the contract's verification logic, but there are issues with the signature generation and verification.
+
+#### Current Implementation
+
+The relayer currently implements a signing process that:
+
+1. Creates a beacon block header with block data
+2. Computes SSZ hash using SimpleSerialize algorithm
+3. Computes domain using `defaultForkVersion` and `genesisValidatorsRoot`
+4. Creates signing root by concatenating SSZ header and domain
+5. Signs using Ethereum signed message format
+6. Splits signature into v, r, s components
+
+#### Known Issues
+
+- The signature verification in the contract's `verifyValidatorSignature()` function may not match the relayer's signing process
+- There may be discrepancies in how the signing root is computed between the relayer and contract
+- The domain computation or SSZ header creation may have implementation differences
+- The Ethereum signed message format may not be correctly implemented
+
+#### Required Fixes
+
+To make the signing process work correctly, the following need to be addressed:
+
+1. **Align signing root computation** between relayer and contract
+2. **Verify domain computation** matches `SimpleSerialize.computeDomain()`
+3. **Ensure SSZ header creation** matches `SimpleSerialize.sszBeaconBlockHeader()`
+4. **Fix Ethereum signed message format** implementation
+5. **Test signature verification** end-to-end
+
+The current implementation serves as a foundation but requires debugging and fixes to function properly with the contract's verification logic.
+
 ## Security
 
 The bridge implements several security measures:
