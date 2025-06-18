@@ -29,10 +29,10 @@ contract RelayerScript is Script {
     uint256 constant SLOTS_PER_PERIOD = 8192; // From BeaconLightClient.sol
 
     function setUp() public {
-        deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        stateBridge = StateBridge(0x74Cee9B5EFF0349766e4Dd727f784a42De37B2b3);
+        deployerPrivateKey = vm.envUint("VALIDATOR_PRIVATE_KEY");
+        stateBridge = StateBridge(vm.envAddress("STATE_BRIDGE_ADDRESS"));
         validatorRegistry = ValidatorRegistry(
-            0x5FC26b06c865B9233069d42a09feB08EEAB20888
+            vm.envAddress("VALIDATOR_REGISTRY_ADDRESS")
         );
     }
 
@@ -88,8 +88,8 @@ contract RelayerScript is Script {
         // Compute signing root using SimpleSerialize
         signingRoot = SimpleSerialize.computeSigningRoot(
             header,
-            bytes4(0x00000000), // defaultForkVersion
-            0x1367160dcd01806c3ce79c58695cdf73ef86888130237370eda1408827c55e6d // genesisValidatorsRoot
+            bytes4(uint32(vm.envUint("FORK_VERSION"))), // defaultForkVersion from env
+            vm.envBytes32("GENESIS_VALIDATORS_ROOT") // genesisValidatorsRoot from env
         );
 
         // Create message for signing
